@@ -1,0 +1,14 @@
+aliases: []
+creation_timestamp: 1792924728549
+current_stage: None
+description: null
+last_updated_timestamp: 1792924728549
+name: investment-agent
+run_id: d85dcfde160246b9b2835ef9e50182d3
+run_link: null
+source: file:///Users/ragonesi/Downloads/Agentic-MLOps-Starter-Repository/mlruns/690881094247908973/d85dcfde160246b9b2835ef9e50182d3/artifacts/model
+status: READY
+status_message: null
+storage_location: file:///Users/ragonesi/Downloads/Agentic-MLOps-Starter-Repository/mlruns/690881094247908973/d85dcfde160246b9b2835ef9e50182d3/artifacts/model
+user_id: null
+version: 1

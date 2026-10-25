@@ -32,6 +32,10 @@ jobs:
   retrain:
     needs: monitor
     runs-on: ubuntu-latest
+    env:
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
     # TODO: Learner must add conditional execution
     if: needs.monitor.outputs.drift == 'true'
     steps:
@@ -40,7 +44,13 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
-      - run: python retrain.py
+      - name: Train Challenger
+        id: train
+        run: python retrain.py
+      - name: Compare Challenger with Champion and deploy
+        env:
+          CANDIDATE_VERSION: ${{ steps.train.outputs.candidate_version }}
+        run: python compare_models.py "$CANDIDATE_VERSION"
       # TODO: Learner must upload artifacts and configure MLflow
       # - name: Upload retrained model artifact
       #   uses: actions/upload-artifact@v3

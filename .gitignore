@@ -7,9 +7,5 @@ dist/
 .venv/
 venv/
 
-# Generated experiment and profiling artifacts
-mlruns/
-*.prof
-
 # macOS
 .DS_Store

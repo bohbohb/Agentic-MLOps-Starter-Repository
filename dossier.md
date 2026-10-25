@@ -1,6 +1,56 @@
-# Security scan report
-We used pip audit instead of safety (as it now requires account creation) and we obtained the following output:
-Found 77 known vulnerabilities in 7 packages
+# Technical Dossier
+
+## Technical Write-Up
+
+### System and design choices
+
+The repository demonstrates a feedback-driven MLOps path: `monitor.py` compares baseline and inference trade-value distributions, `retrain.py` fits and registers a model from feedback CSVs, and `compare_models.py` decides whether a registered Challenger should replace the Production Champion.
+
+The monitor reports both Population Stability Index (PSI) and the two-sample Kolmogorov-Smirnov (KS) statistic. PSI summarizes distribution changes across quantile buckets, while KS compares the empirical distributions directly. Drift is flagged when PSI exceeds `0.2` or KS exceeds `0.1`; these thresholds are configurable function arguments in `monitor.py`.
+
+Training uses the three categorical fields `agent_id`, `tool_name`, and `status`. A `ColumnTransformer` applies one-hot encoding. The transformed features feed a `LinearRegression` model. The fixed 80/20 split and `random_state=42` are crucial to make the experiments repeatable. MSE is the comparison metric because `trade_value` is continuous, another metric such as AUC is not appropriate here as it is classification metric. Lower MSE indicates better predictions.
+
+MLflow logs the metric and serialized sklearn pipeline, and registers versions under `investment-agent`. `compare_models.py` moves the new version to `Staging`; it promotes it to `Production` only when its MSE is strictly lower than the current Champion's. An equal or worse Challenger remains in Staging, while the existing Champion is keept as Production. On an empty registry, the first Challenger becomes Production.
+
+### Reproduced behavior and model quality
+
+Running `uv run python monitor.py` against the checked-in 500-row baseline and 500-row inference files produced:
+
+```text
+{'psi': 11.487804639671229, 'ks': 1.0, 'drift_detected': True, 'reason': 'psi value is over the threshold 0.2, ks value is over the threshold 0.1'}
+```
+
+The feedback files contain 600 rows in total. The recorded MLflow runs both report MSE `23598.55339906003`. This is above the supplied acceptance target of MSE `< 2000`, so the current model-quality requirement is not met. The measured target standard deviation is about `143.19`; the reported MSE corresponds to an RMSE of about `153.62`. The profiling optimization below changes only how MLflow records model dependencies, not the features, split, or estimator, and the observed MSE remained unchanged. Improving model quality requires separate feature/data investigation and must be demonstrated with a new holdout result rather than assumed from the runtime change.
+
+The run details and metric are visible in the supplied [Challenger run screenshot](screenshots/Screenshot%202026-10-25%20at%2012.08.50.png) and [Champion run screenshot](screenshots/Screenshot%202026-10-25%20at%2012.09.08.png). The MLflow experiment view shows run durations of 2.6 and 2.7 seconds in the earlier captured run set: [experiment screenshot](screenshots/Screenshot%202026-10-25%20at%2012.05.59.png).
+
+## Profiling Report
+
+### Method
+
+The baseline and optimized measurements were captured on the same local macOS ARM environment with CPython 3.11.8, MLflow 2.9.2, and the same 600-row feedback data. Each timing is a fresh Python process using a temporary file-backed MLflow registry. Three wall-clock runs were measured with `time.perf_counter`; the mean is reported below. The profile artifacts were captured separately with `cProfile`, whose instrumentation adds overhead, so profile totals should not be confused with the unprofiled wall-clock means.
+
+### Results
+
+| Measurement | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Wall-clock run 1 | 5.323 s | 2.416 s | |
+| Wall-clock run 2 | 5.034 s | 2.367 s | |
+| Wall-clock run 3 | 5.369 s | 2.433 s | |
+| Mean wall-clock runtime | 5.242 s | 2.406 s | 54.1% faster |
+| cProfile total runtime | 5.531 s | 2.576 s | 53.4% lower |
+| `mlflow.sklearn.log_model` cumulative time | 2.714 s | 0.056 s | 97.9% lower |
+| MLflow requirement inference | 2.633 s | Not present | Removed |
+| Function calls (including profiler/import activity) | 2,835,876 | 1,613,634 | 43.1% fewer |
+
+Before, `retrain.prof` showed `mlflow.sklearn.log_model` consuming 2.714 seconds, of which `_infer_requirements` consumed 2.633 seconds. MLflow was importing and inspecting the environment to infer model dependencies. The fix in `retrain.py` supplies the versions of MLflow, NumPy, pandas, scikit-learn, and SciPy explicitly via `pip_requirements`. This preserves a reproducible model environment and avoids that inference subprocess. The post-change profile, `retrain_after.prof`, shows model logging at 0.056 seconds and no `_infer_requirements` call.
+
+The wall-clock means improve by 54.1%, exceeding the guide's 20% target. The checked-in profiles provide the raw call data: [before profile](retrain.prof) and [after profile](retrain_after.prof).
+
+## Dependency Security Scan
+
+The point-in-time `pip-audit` output recorded for this environment reports 77 advisories across seven packages. The detailed advisory IDs and scanner-provided fix versions are retained below. These are version-level findings; they do not by themselves establish that every vulnerable code path is reachable in this application.
+
 Name | Version | ID | Fix Versions
 --- | --- | --- | ---
 gunicorn | 21.2.0 | PYSEC-2026-1434 | 22.0.0
@@ -74,21 +124,10 @@ urllib3 | 1.23 | PYSEC-2020-148 | 1.25.9
 urllib3 | 1.23 | PYSEC-2023-192 | 1.26.17,2.0.6
 urllib3 | 1.23 | PYSEC-2023-207 | 1.24.2
 urllib3 | 1.23 | PYSEC-2023-212 | 1.26.18,2.0.7
-urllib3 | 1.23 | PYSEC-2026-141 | 2.7.0
-urllib3 | 1.23 | PYSEC-2026-1999 | 2.5.0
-urllib3 | 1.23 | PYSEC-2026-1995 | 1.26.19,2.2.2
-urllib3 | 1.23 | PYSEC-2026-1994 | 2.6.0
-urllib3 | 1.23 | PYSEC-2026-1996 | 2.6.3
 urllib3 | 1.23 | PYSEC-2026-4177 | 2.8.0
 
+### Assessment and next steps
 
-In particular we can notice that the several libraries require version bump which might have important consequences in terms of compatibility while others just require update patches. 
-For example urlib3 and requests are simple minor updates and since the libraries are just used for sending http requests I would expect that the change could have a very low effort, as I don't expect no client code changes nor possible behavior changes and the possible problems that might arise from this change are limited in my opinion.
-When it comes to mlflow experiment logging gunicorn and idna, the scan suggests a major bump which might involve changes in behaviors or removal of features that might be used in the code. On top of that mlflow is quite important in this kind of codebases as it might break some business or operational requirements (for example I log in a different way the dependency and this might break the productive model serving or the deploy pipeline), we need to invest on these updates and investigate and carefully read the update guidelines if present. Pyarrow requires a bump of 3 versions however since it is fundational library used mostly to read data of arrwo format I wouldn't expect a very complicated update process even if it is a major bump, given also the limited usage of the dependecy.
+The most consequential upgrade is MLflow: the scan lists fixes across both later 2.x releases and 3.x, so upgrading could be very demanding as it may affect model logging, registry behavior, or serving. Gunicorn, PyArrow, and protobuf also require compatibility testing as they involve minor updates. Requests, urllib3, and idna are old transitive HTTP dependencies; I cannot assume their upgrades are behavior-free just because their role is narrow, however we can estimate the risk and the effort of the upgrade lower compared to the ones mentioned above.
+To upgrade the dependencies it is important to review each advisory and the relevant release notes, update compatible constraints in `pyproject.toml`, regenerate `uv.lock`, run the monitor/retraining/registry checks, and rerun `pip-audit`. Once this is is done a new scan should be made to check new advisory data before a release.
 
-# Monitor
-
-To run monitor.py you can simply run: 
-uv run python monitor.py
-output:
-{'psi': 11.487804639671229, 'ks': 1.0, 'drift_detected': True, 'reason': 'psi value is over the threshold 0.2, ks value is over the threshold 0.1'}
