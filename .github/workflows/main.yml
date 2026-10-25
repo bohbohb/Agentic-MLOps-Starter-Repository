@@ -8,19 +8,32 @@ on:
 jobs:
   monitor:
     runs-on: ubuntu-latest
+    outputs:
+      drift: ${{ steps.parse_drift.outputs.drift }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
-      - run: python monitor.py
+      - run: python monitor.py > drift_output.json
       # TODO: Learner must add drift output parsing
+      - name: Parse drift output
+        id: parse_drift
+        run: |
+          if (cat drift_output.json | jq ".drift_detected" == true) ; then
+            echo "Drift detected"
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No drift detected"
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          fi
 
   retrain:
     needs: monitor
     runs-on: ubuntu-latest
     # TODO: Learner must add conditional execution
+    if: needs.monitor.outputs.drift == 'true'
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -29,3 +42,8 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python retrain.py
       # TODO: Learner must upload artifacts and configure MLflow
+      # - name: Upload retrained model artifact
+      #   uses: actions/upload-artifact@v3
+      #   with:
+      #     name: retrained-model
+      #     path: path/to/retrained/model

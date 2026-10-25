@@ -40,10 +40,18 @@ def detect_drift(baseline_path, current_path, psi_threshold=0.2, ks_threshold=0.
 
     drift_detected = psi_value > psi_threshold or ks_value > ks_threshold
 
+    reason = []
+    if psi_value > psi_threshold:
+        reason.append(f"psi value is over the threshold {psi_threshold}") 
+    if ks_value > ks_threshold:
+        reason.append(f"ks value is over the threshold {ks_threshold}")
+    if drift_detected:
+        reason.append()
     return {
         "psi": psi_value,
         "ks": ks_value,
-        "drift_detected": drift_detected
+        "drift_detected": drift_detected,
+        "reason": ", ".join(reason)
     }
 
 if __name__ == "__main__":

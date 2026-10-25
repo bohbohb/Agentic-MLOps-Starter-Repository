@@ -53,10 +53,10 @@ def main():
 
         mlflow.log_metric("mse", mse)
         mlflow.sklearn.log_model(
-    model,
-    "model",
-    registered_model_name="investment-agent"
-)
+            model,
+            "model",
+            registered_model_name="investment-agent"
+        )
 
 
         print(f"Training complete. MSE: {mse}")
