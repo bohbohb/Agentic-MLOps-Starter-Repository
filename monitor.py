@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 import numpy as np
 from scipy.stats import ks_2samp
@@ -48,10 +50,10 @@ def detect_drift(baseline_path, current_path, psi_threshold=0.2, ks_threshold=0.
     return {
         "psi": psi_value,
         "ks": ks_value,
-        "drift_detected": drift_detected,
+        "drift_detected": bool(drift_detected),
         "reason": ", ".join(reason)
     }
 
 if __name__ == "__main__":
     result = detect_drift("data/baseline_data.csv", "data/inference_data.csv")
-    print(result)
+    print(json.dumps(result))
